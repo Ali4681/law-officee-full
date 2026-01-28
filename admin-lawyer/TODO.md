@@ -1,0 +1,6 @@
+- [x] Add a single "Schedule Hearing" card before the OCR upload card, visible only for assigned lawyers
+- [x] Remove the hearing scheduling card that appears after OCR results
+- [x] Remove all OCR-related logic for hearing scheduling (isCourtDecision checks, OCR-populated fields)
+- [x] Update schedulingInfo logic to not depend on OCR or document type
+- [x] Ensure hearing fields are not overwritten by OCR results
+- [x] Test that scheduling works before OCR and for all file types

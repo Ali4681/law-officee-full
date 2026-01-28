@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>FCM Push Test</title>
+  </head>
+  <body>
+    <h1>Firebase Push Test</h1>
+    <button id="getTokenBtn">Get Device Token</button>
+    <p id="tokenOutput"></p>
+
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+      import { getMessaging, getToken, onMessage } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging.js';
+
+      const firebaseConfig = {
+        apiKey: 'AIzaSyCiL072CcS_MZZm9V18J9Fq_CkbDsioiz0',
+        authDomain: 'law-office-notifications.firebaseapp.com',
+        projectId: 'law-office-notifications',
+        storageBucket: 'law-office-notifications.firebasestorage.app',
+        messagingSenderId: '509375519115',
+        appId: '1:509375519115:web:d689636a5f992dcbb8378e',
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const messaging = getMessaging(app);
+
+      const btn = document.getElementById('getTokenBtn');
+      const output = document.getElementById('tokenOutput');
+
+      btn.addEventListener('click', async () => {
+        try {
+          // Request notification permission
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+            output.innerText = 'Notification permission denied';
+            return;
+          }
+
+          // Register service worker
+          const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+          console.log('Service Worker registered:', registration);
+
+          // Get FCM device token
+          const token = await getToken(messaging, {
+            vapidKey: 'BORkRIHmr2A5DhTBnQARYaEJ4jKFgvBrFV0lXUC4qDJdE30Dr6ScCdhZRBKfa3U1-b4yZEtX76SpSWm_wfGgq0g',
+            serviceWorkerRegistration: registration,
+          });
+
+          output.innerText = `Device token: ${token}`;
+          console.log('Device token:', token);
+
+          // Optional: Send token to backend
+          await fetch('/api/device-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, type: 'web', platform: navigator.userAgent }),
+          });
+
+        } catch (err) {
+          console.error('Error getting token:', err);
+          output.innerText = 'Error obtaining device token. Check console.';
+        }
+      });
+
+      // Handle foreground messages
+      onMessage(messaging, (payload) => {
+        console.log('Foreground message received:', payload);
+        const title = payload.data?.title || 'New Notification';
+        const options = {
+          body: payload.data?.body || payload.data?.message || 'You have a new notification',
+          data: payload.data,
+        };
+
+        if (Notification.permission === 'granted') {
+          new Notification(title, options);
+        }
+      });
+    </script>
+  </body>
+</html>

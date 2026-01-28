@@ -1,0 +1,12 @@
+# افتح .gitignore في VS Code
+code .gitignore
+```
+
+ثم أضف في نهاية الملف:
+```
+# Firebase Service Account Credentials
+*firebase-adminsdk*.json
+*adminsdk*.json
+law-office-backend/*.json
+law-office-backend/src/*.json
+**/*firebase*.json
