@@ -14,6 +14,10 @@ export class CreateHearingDto {
 
   @IsOptional()
   @IsString()
+  time?: string;
+
+  @IsOptional()
+  @IsString()
   location?: string;
 
   @IsOptional()

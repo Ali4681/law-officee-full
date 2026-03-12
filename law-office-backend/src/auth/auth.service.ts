@@ -7,7 +7,6 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { CreateUserDto } from '../users/DTO/user.dto';
-// import { EditUserDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -16,29 +15,51 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  
-
+  // ✅ Fixed signup - now returns tokens
   async signup(createUserDto: CreateUserDto) {
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
     console.log('Hashed password:', hashedPassword);
     const verificationStatus =
       createUserDto.role === 'lawyer' ? 'pending' : 'approved';
 
-    return this.usersService.create({
+    // Create the user
+    const newUser = await this.usersService.create({
       ...createUserDto,
       password: hashedPassword,
       verificationStatus,
     });
+
+    console.log('✅ User created successfully:', {
+      id: newUser._id,
+      email: newUser.email,
+      role: newUser.role,
+    });
+
+    // ✅ Generate tokens and return them (just like login does)
+    const payload = {
+      email: newUser.email,
+      sub: newUser._id,
+      role: newUser.role,
+    };
+
+    return {
+      access_token: this.jwtService.sign(payload),
+      refresh_token: this.jwtService.sign(payload, { expiresIn: '7d' }),
+      id: newUser._id,
+      role: newUser.role,
+      user: {
+        id: newUser._id,
+        email: newUser.email,
+        role: newUser.role,
+        profile: newUser.profile,
+        avatarUrl: newUser.avatarUrl,
+      },
+    };
   }
 
   // ✅ Validate user for login
   async validateUser(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
-
-    // console.log('--- validateUser debug ---');
-    // console.log('Email:', email);
-    // console.log('User from DB:', user);
-    // console.log('Provided password:', password);
 
     if (!user) {
       console.log('User not found');
@@ -63,7 +84,6 @@ export class AuthService {
       );
     }
 
-    // console.log('User validated successfully');
     return user;
   }
 
@@ -73,8 +93,15 @@ export class AuthService {
     return {
       access_token: this.jwtService.sign(payload),
       refresh_token: this.jwtService.sign(payload, { expiresIn: '7d' }),
-      id:user._id,
-      role:user.role,
+      id: user._id,
+      role: user.role,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        profile: user.profile,
+        avatarUrl: user.avatarUrl,
+      },
     };
   }
 
@@ -86,22 +113,4 @@ export class AuthService {
       refresh_token: this.jwtService.sign(payload, { expiresIn: '7d' }),
     };
   }
-
-  // // ✅ Forgot password
-  // async forgotPassword(email: string, newPassword: string) {
-  //   const user = await this.usersService.findByEmail(email);
-  //   if (!user) throw new NotFoundException('User not found');
-
-  //   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  //   return this.usersService.update(user._id, { password: hashedPassword });
-  // }
-
-  // // ✅ Update user profile
-  // async updateProfile(userId: string, editUserDto: EditUserDto) {
-  //   const user = await this.usersService.findById(userId);
-  //   if (!user) throw new NotFoundException('User not found');
-
-  //   // Update only provided fields
-  //   return this.usersService.update(userId, editUserDto);
-  // }
 }

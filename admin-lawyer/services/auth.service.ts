@@ -24,29 +24,32 @@ export const AuthService = {
   async signup(
     dto: SignupDto & {
       certificateFile?: { uri: string; name: string; type?: string | null };
-    }
+    },
   ): Promise<User> {
     const formData = new FormData();
     formData.append("email", dto.email);
     formData.append("password", dto.password);
     formData.append("role", dto.role);
 
+    // FIX 1: Handle specialization as array
     if (dto.specialization && dto.specialization.trim().length > 0) {
-      formData.append("specialization", dto.specialization.trim());
+      formData.append(
+        "specialization",
+        JSON.stringify([dto.specialization.trim()]),
+      );
     }
 
+    // FIX 2: Send profile as JSON string
     if (dto.profile) {
-      if (dto.profile.firstName) {
-        formData.append("profile[firstName]", dto.profile.firstName);
-      }
-      if (dto.profile.lastName) {
-        formData.append("profile[lastName]", dto.profile.lastName);
-      }
-      if (dto.profile.phone) {
-        formData.append("profile[phone]", dto.profile.phone);
-      }
+      const profileData = {
+        ...(dto.profile.firstName && { firstName: dto.profile.firstName }),
+        ...(dto.profile.lastName && { lastName: dto.profile.lastName }),
+        ...(dto.profile.phone && { phone: dto.profile.phone }),
+      };
+      formData.append("profile", JSON.stringify(profileData));
     }
 
+    // Certificate handling
     if (dto.certificateFile) {
       formData.append("certificate", {
         uri: dto.certificateFile.uri,
@@ -54,13 +57,17 @@ export const AuthService = {
           dto.certificateFile.name?.length > 0
             ? dto.certificateFile.name
             : `certificate-${Date.now()}.pdf`,
-        type: dto.certificateFile.type || "application/octet-stream",
+        type: dto.certificateFile.type || "application/pdf",
       } as any);
     } else if (dto.role === "lawyer") {
       throw new Error("Certificate is required for lawyer signup.");
     }
 
-    const res = await api.post("/auth/signup", formData);
+    const res = await api.post("/auth/signup", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
     return res.data;
   },
 
@@ -94,7 +101,11 @@ export const AuthService = {
     return res.data;
   },
 
-  async uploadAvatar(file: { uri: string; name: string; type?: string | null }) {
+  async uploadAvatar(file: {
+    uri: string;
+    name: string;
+    type?: string | null;
+  }) {
     const id = await AsyncStorage.getItem("user_id");
     const formData = new FormData();
     formData.append("avatar", {

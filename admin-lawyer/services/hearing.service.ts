@@ -2,7 +2,8 @@ import { api } from "./api";
 
 export type CreateHearingDto = {
   caseId: string;
-  date: string;
+  date: string; // ISO date string (YYYY-MM-DD)
+  time?: string; // Time string (HH:MM or HH:MM AM/PM)
   clientId?: string;
   location?: string;
   notes?: string;

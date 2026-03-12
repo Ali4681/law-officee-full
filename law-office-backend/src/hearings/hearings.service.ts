@@ -1,10 +1,13 @@
-// src/hearings/hearings.service.ts
+// DIAGNOSTIC VERSION - Replace your hearings.service.ts temporarily with this
+// This will show exactly what's being received and processed
+
 import {
   Injectable,
   NotFoundException,
   Inject,
   forwardRef,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -25,14 +28,113 @@ export class HearingsService {
     private notificationsService: NotificationsService,
   ) {}
 
+  private combineDateTime(dateStr: string, timeStr?: string): Date {
+    // 🔍 DIAGNOSTIC LOGGING
+    this.logger.log(`🔍 combineDateTime called with:`);
+    this.logger.log(`   dateStr: "${dateStr}" (type: ${typeof dateStr})`);
+    this.logger.log(`   timeStr: "${timeStr}" (type: ${typeof timeStr})`);
+
+    const date = new Date(dateStr);
+
+    // 🔍 DIAGNOSTIC LOGGING
+    this.logger.log(`   Parsed date: ${date.toISOString()}`);
+    this.logger.log(`   Parsed year: ${date.getFullYear()}`);
+
+    // ✅ VALIDATION: Check if date is valid
+    if (isNaN(date.getTime())) {
+      this.logger.error(`❌ Invalid date string: "${dateStr}"`);
+      throw new BadRequestException(`Invalid date format: ${dateStr}`);
+    }
+
+    // ✅ VALIDATION: Check if year is reasonable
+    const year = date.getFullYear();
+    if (year < 2024 || year > 2100) {
+      this.logger.error(`❌ Invalid year: ${year} from dateStr: "${dateStr}"`);
+      throw new BadRequestException(
+        `Invalid date year: ${year}. Please use format YYYY-MM-DD (e.g., 2025-02-15). Received: ${dateStr}`,
+      );
+    }
+
+    if (timeStr) {
+      // Parse time string (supports formats like "14:00", "2:00 PM", "2:00 م", etc.)
+      const timePattern = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|ص|م)?$/i;
+      const match = timeStr.trim().match(timePattern);
+
+      if (match) {
+        const [, hourStr, minuteStr, secondStr, ampm] = match;
+        let hours = Number(hourStr);
+        const minutes = Number(minuteStr);
+        const seconds = Number(secondStr || '0');
+
+        // 🔍 DIAGNOSTIC LOGGING
+        this.logger.log(
+          `   Time parsed: ${hours}:${minutes}:${seconds} ${ampm || '(24h)'}`,
+        );
+
+        // Handle both English (AM/PM) and Arabic (ص/م) time markers
+        if (ampm) {
+          const upper = ampm.toUpperCase();
+          if ((upper === 'PM' || upper === 'م') && hours < 12) hours += 12;
+          if ((upper === 'AM' || upper === 'ص') && hours === 12) hours = 0;
+        }
+
+        // 🔍 DIAGNOSTIC LOGGING
+        this.logger.log(`   Adjusted hours: ${hours}`);
+
+        date.setHours(hours, minutes, seconds, 0);
+      } else {
+        this.logger.warn(`⚠️ Could not parse time: "${timeStr}"`);
+      }
+    } else {
+      // Default to 9:00 AM Syria time if no time provided
+      this.logger.log(`   No time provided, defaulting to 9:00 AM`);
+      date.setHours(9, 0, 0, 0);
+    }
+
+    // 🔍 FINAL DIAGNOSTIC
+    this.logger.log(`   ✅ Final combined datetime: ${date.toISOString()}`);
+    this.logger.log(`   ✅ Final year: ${date.getFullYear()}`);
+
+    return date;
+  }
+
   async create(
     createHearingDto: CreateHearingDto,
     userId: string,
     userRole: string,
   ): Promise<Hearing> {
+    // 🔍 DIAGNOSTIC LOGGING - Log what we received
+    this.logger.log(`════════════════════════════════════════`);
+    this.logger.log(`🔍 CREATE HEARING REQUEST`);
+    this.logger.log(
+      `   DTO received: ${JSON.stringify(createHearingDto, null, 2)}`,
+    );
+    this.logger.log(`   User: ${userId} (${userRole})`);
+    this.logger.log(`════════════════════════════════════════`);
+
     await this.casesService.findOne(createHearingDto.caseId, userId, userRole);
-    const hearing = new this.hearingModel(createHearingDto);
+
+    // Combine date and time into a single Date object
+    const combinedDateTime = this.combineDateTime(
+      createHearingDto.date,
+      createHearingDto.time,
+    );
+
+    const hearing = new this.hearingModel({
+      ...createHearingDto,
+      date: combinedDateTime,
+    });
+
+    // 🔍 DIAGNOSTIC LOGGING - Log what we're about to save
+    this.logger.log(`🔍 About to save hearing:`);
+    this.logger.log(`   caseId: ${hearing.caseId}`);
+    this.logger.log(`   date: ${hearing.date.toISOString()}`);
+    this.logger.log(`   location: ${hearing.location || 'none'}`);
+    this.logger.log(`   notes: ${hearing.notes || 'none'}`);
+
     const savedHearing = await hearing.save();
+
+    this.logger.log(`✅ Hearing saved with ID: ${(savedHearing as any)._id}`);
 
     // Notify client about new hearing
     await this.notifyClientAboutHearing(savedHearing, 'HEARING_CREATED');
@@ -95,8 +197,20 @@ export class HearingsService {
       userRole,
     );
 
+    // Combine date and time if both are provided
+    let updateData: any = { ...updateHearingDto };
+    if (updateHearingDto.date || updateHearingDto.time) {
+      const dateToUse = updateHearingDto.date || hearing.date.toISOString();
+      const combinedDateTime = this.combineDateTime(
+        dateToUse,
+        updateHearingDto.time,
+      );
+      updateData.date = combinedDateTime;
+      delete updateData.time; // Remove time field as it's combined into date
+    }
+
     const updated = await this.hearingModel
-      .findByIdAndUpdate(id, updateHearingDto, { new: true })
+      .findByIdAndUpdate(id, updateData, { new: true })
       .exec();
 
     if (!updated) {
@@ -134,12 +248,24 @@ export class HearingsService {
       const clientId = (caseDoc.clientId as any)._id?.toString();
       if (!clientId) return;
 
-      const dateStr = new Date(hearing.date).toLocaleDateString('ar-SA');
+      // Use Syria timezone (Asia/Damascus) with Arabic locale
+      const dateStr = new Date(hearing.date).toLocaleDateString('ar-SY', {
+        timeZone: 'Asia/Damascus',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+      const timeStr = new Date(hearing.date).toLocaleTimeString('ar-SY', {
+        timeZone: 'Asia/Damascus',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
       const locationStr = hearing.location ? ` في ${hearing.location}` : '';
       const message =
         type === 'HEARING_CREATED'
-          ? `تم جدولة جلسة استماع جديدة لقضيتك في ${dateStr}${locationStr}.`
-          : `تم تحديث جلسة الاستماع لقضيتك في ${dateStr}${locationStr}.`;
+          ? `تم جدولة جلسة استماع جديدة لقضيتك في ${dateStr} الساعة ${timeStr}${locationStr}.`
+          : `تم تحديث جلسة الاستماع لقضيتك في ${dateStr} الساعة ${timeStr}${locationStr}.`;
 
       await this.notificationsService.sendToUser(clientId, type, message, {
         hearingId: (hearing as any)._id,

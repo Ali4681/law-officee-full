@@ -33,57 +33,55 @@ const palette = {
   slate: "#566375",
 };
 
-const tryParseDateValue = (value: string): Date | null => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
+// ============================================================================
+// FIXED DATE PARSING - Prevents 2001 year issue
+// ============================================================================
 
 const parseFlexibleDate = (input: string): Date | null => {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  const normalized = trimmed.replace(/\./g, "-");
-  const directParse =
-    tryParseDateValue(trimmed) || tryParseDateValue(normalized);
-  if (directParse) return directParse;
-
-  const timePattern =
-    /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i;
-  const timeMatch = trimmed.match(timePattern);
-  if (timeMatch) {
-    const [, year, month, day, hour, minute, second, ampm] = timeMatch;
-    let hr = Number(hour);
-    const min = Number(minute);
-    const sec = Number(second || "0");
-    if (ampm) {
-      const upper = ampm.toUpperCase();
-      if (upper === "PM" && hr < 12) hr += 12;
-      if (upper === "AM" && hr === 12) hr = 0;
-    }
-    const date = new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      hr,
-      min,
-      sec,
-    );
-    if (!Number.isNaN(date.getTime())) {
+  // First try ISO format (YYYY-MM-DD) - most reliable
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!isNaN(date.getTime())) {
       return date;
     }
   }
 
+  // Try direct parsing but validate year
+  const directDate = new Date(trimmed);
+  if (!isNaN(directDate.getTime()) && directDate.getFullYear() >= 2000) {
+    return directDate;
+  }
+
+  // Handle various separators
+  const normalized = trimmed.replace(/\./g, "-").replace(/\//g, "-");
+
+  // Split by separator
   const parts = normalized
-    .split(/[\s\/\-]+/)
+    .split(/[\s\-]+/)
     .map((p) => p.trim())
     .filter(Boolean);
+
   if (parts.length !== 3 || !parts.every((p) => /^\d+$/.test(p))) {
     return null;
   }
 
   const toDate = (year: number, month: number, day: number): Date | null => {
-    const normalizedYear =
-      year < 100 ? (year >= 70 ? 1900 + year : 2000 + year) : year;
+    // FIXED: Always interpret 2-digit years as 20xx (not 19xx)
+    let normalizedYear = year;
+    if (year < 100) {
+      normalizedYear = 2000 + year; // Force 2000s
+    }
+
+    // Validate year is reasonable (2000-2100)
+    if (normalizedYear < 2000 || normalizedYear > 2100) {
+      return null;
+    }
+
     const date = new Date(normalizedYear, month - 1, day);
     if (
       date.getFullYear() === normalizedYear &&
@@ -95,21 +93,22 @@ const parseFlexibleDate = (input: string): Date | null => {
     return null;
   };
 
+  // Try different date format orders
   const idxOrders: Array<{
     yearIdx: number;
     monthIdx: number;
     dayIdx: number;
   }> = [
-    { yearIdx: 2, monthIdx: 1, dayIdx: 0 },
-    { yearIdx: 2, monthIdx: 0, dayIdx: 1 },
-    { yearIdx: 0, monthIdx: 1, dayIdx: 2 },
-    { yearIdx: 1, monthIdx: 0, dayIdx: 2 },
+    { yearIdx: 0, monthIdx: 1, dayIdx: 2 }, // YYYY-MM-DD (prioritize this)
+    { yearIdx: 2, monthIdx: 1, dayIdx: 0 }, // DD-MM-YYYY
+    { yearIdx: 2, monthIdx: 0, dayIdx: 1 }, // MM-DD-YYYY
   ];
 
   for (const order of idxOrders) {
     const year = Number(parts[order.yearIdx]);
     const month = Number(parts[order.monthIdx]);
     const day = Number(parts[order.dayIdx]);
+
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       const candidate = toDate(year, month, day);
       if (candidate) return candidate;
@@ -118,6 +117,47 @@ const parseFlexibleDate = (input: string): Date | null => {
 
   return null;
 };
+
+const parseTime = (
+  timeStr: string,
+): { hours: number; minutes: number } | null => {
+  const trimmed = timeStr.trim();
+  if (!trimmed) return null;
+
+  // Support English and Arabic time formats
+  const timePattern = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|ص|م)?$/i;
+  const match = trimmed.match(timePattern);
+
+  if (match) {
+    const [, hourStr, minuteStr, , ampm] = match;
+    let hours = Number(hourStr);
+    const minutes = Number(minuteStr);
+
+    if (ampm) {
+      const upper = ampm.toUpperCase();
+      if ((upper === "PM" || upper === "م") && hours < 12) hours += 12;
+      if ((upper === "AM" || upper === "ص") && hours === 12) hours = 0;
+    }
+
+    if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+      return { hours, minutes };
+    }
+  }
+
+  return null;
+};
+
+// Format date as YYYY-MM-DD
+const formatDateAsISO = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 const STATUS_OPTIONS: CaseStatus[] = ["declined", "active", "in_progress"];
 
@@ -176,19 +216,19 @@ const formatDisplayValue = (value: any): string => {
   return String(value);
 };
 
-const getDocumentDisplayName = (doc: any): string => {
-  if (!doc) return "Document";
-  if (doc.originalName) return doc.originalName;
-  if (doc.fileName) return doc.fileName;
-  if (doc.fileUrl) {
-    try {
-      const sanitized = `${doc.fileUrl}`.split("?")[0];
-      const segments = sanitized.split("/").filter(Boolean);
-      const last = segments[segments.length - 1];
-      if (last) return decodeURIComponent(last);
-    } catch (_) {}
+const ensureText = (value: any): string => {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return String(value);
+  } catch {
+    return "";
   }
-  return "Document";
+};
+
+const clipText = (value: string, max = 20000): string => {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}\n...[truncated]`;
 };
 
 const getStatusColor = (status: string) => {
@@ -212,6 +252,10 @@ const getStatusColor = (status: string) => {
   }
 };
 
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function CaseDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string | string[] }>();
@@ -226,6 +270,7 @@ export default function CaseDetailScreen() {
   const [ocrResult, setOcrResult] = useState<any | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [hearingDate, setHearingDate] = useState("");
+  const [hearingTime, setHearingTime] = useState("");
   const [hearingLocation, setHearingLocation] = useState("");
   const [hearingNotes, setHearingNotes] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -258,6 +303,29 @@ export default function CaseDetailScreen() {
     [caseId],
   );
 
+  const toPrettyJson = useCallback((value: any) => {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return typeof value === "string" ? value : "";
+    }
+  }, []);
+
+  const safeSerialize = useCallback((value: any) => {
+    try {
+      const seen = new WeakSet();
+      return JSON.stringify(value, (_key, current) => {
+        if (typeof current === "object" && current !== null) {
+          if (seen.has(current)) return "[Circular]";
+          seen.add(current);
+        }
+        return current;
+      });
+    } catch {
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     AsyncStorage.getItem("user_id").then(setUserId);
   }, []);
@@ -279,13 +347,27 @@ export default function CaseDetailScreen() {
     (value: any | null) => {
       setOcrResult(value);
       if (!storageKey) return;
-      if (value) {
-        AsyncStorage.setItem(storageKey, JSON.stringify(value)).catch(() => {});
-      } else {
-        AsyncStorage.removeItem(storageKey).catch(() => {});
+      try {
+        if (value) {
+          const serialized = safeSerialize(value);
+          if (!serialized) {
+            console.log("Skipping OCR cache write: failed to serialize value.");
+            return;
+          }
+          // Keep cache reasonably small to avoid memory pressure on mobile.
+          if (serialized.length > 900_000) {
+            console.log("Skipping OCR cache write: payload too large.");
+            return;
+          }
+          AsyncStorage.setItem(storageKey, serialized).catch(() => {});
+        } else {
+          AsyncStorage.removeItem(storageKey).catch(() => {});
+        }
+      } catch (cacheErr) {
+        console.log("Failed to persist OCR cache", cacheErr);
       }
     },
-    [storageKey],
+    [storageKey, safeSerialize],
   );
 
   const onRefresh = useCallback(async () => {
@@ -296,6 +378,10 @@ export default function CaseDetailScreen() {
       setRefreshing(false);
     }
   }, [refetch]);
+
+  // ============================================================================
+  // FIXED: Handle Send Hearing with proper date formatting
+  // ============================================================================
 
   const handleSendHearing = useCallback(async () => {
     if (!caseId) {
@@ -312,38 +398,83 @@ export default function CaseDetailScreen() {
     }
 
     const dateInput = hearingDate.trim();
+    const timeInput = hearingTime.trim();
     const location = hearingLocation.trim() || undefined;
     const notes = hearingNotes.trim() || undefined;
 
     if (!dateInput) {
       Alert.alert(
         "Missing Date",
-        "Please enter the hearing date (any readable format).",
+        "Please enter the hearing date (e.g., 2025-12-05 or 05/12/2025).",
       );
       return;
     }
 
+    // Parse the date
     const parsedDate = parseFlexibleDate(dateInput);
     if (!parsedDate) {
       Alert.alert(
         "Invalid Date",
-        "The provided date could not be interpreted. Try another format or double-check the numbers.",
+        "The provided date could not be interpreted. Try format like: 2025-12-05 or 05/12/2025",
       );
       return;
     }
 
-    const isoDate = parsedDate.toISOString();
+    // FIXED: Validate the year is reasonable
+    const year = parsedDate.getFullYear();
+    if (year < 2024 || year > 2100) {
+      Alert.alert(
+        "Invalid Year",
+        `The date appears to be in year ${year}. Please check the date format.\n\nExample: 2025-12-05`,
+      );
+      return;
+    }
+
+    // Validate time if provided
+    if (timeInput) {
+      const parsedTime = parseTime(timeInput);
+      if (!parsedTime) {
+        Alert.alert(
+          "Invalid Time",
+          "The provided time could not be interpreted. Use format like 2:00 PM, 2:00 م, or 14:00.",
+        );
+        return;
+      }
+    }
+
+    // FIXED: Format date as YYYY-MM-DD properly
+    const isoDate = formatDateAsISO(parsedDate);
+
+    // Debug logging
+    console.log("📅 Sending hearing request:");
+    console.log("  Input date:", dateInput);
+    console.log("  Parsed date:", parsedDate);
+    console.log("  ISO date:", isoDate);
+    console.log("  Time:", timeInput || "not provided");
 
     try {
       setSendingHearing(true);
 
-      const res = await HearingService.create({
+      const payload: any = {
         caseId,
         date: isoDate,
         location,
         notes,
-        ...(caseClientId ? { clientId: caseClientId } : {}),
-      });
+      };
+
+      // Add time separately if provided
+      if (timeInput) {
+        payload.time = timeInput;
+      }
+
+      // Add clientId if available
+      if (caseClientId) {
+        payload.clientId = caseClientId;
+      }
+
+      console.log("📤 Payload:", JSON.stringify(payload, null, 2));
+
+      const res = await HearingService.create(payload);
 
       const hearingId = res?.hearingId || res?.hearing?._id || res?._id || null;
 
@@ -352,9 +483,15 @@ export default function CaseDetailScreen() {
         `Hearing Scheduled${hearingId ? " (#" + hearingId + ")" : ""}`,
       );
 
+      // Clear form
+      setHearingDate("");
+      setHearingTime("");
+      setHearingLocation("");
+      setHearingNotes("");
+
       await refetch();
     } catch (err: any) {
-      console.log("Hearing Error:", err);
+      console.error("Hearing Error:", err);
       Alert.alert(
         "Failed",
         err?.response?.data?.message || err?.message || "Unexpected error",
@@ -362,17 +499,35 @@ export default function CaseDetailScreen() {
     } finally {
       setSendingHearing(false);
     }
-  }, [caseId, hearingDate, hearingLocation, hearingNotes, isAssigned, refetch]);
+  }, [
+    caseId,
+    hearingDate,
+    hearingTime,
+    hearingLocation,
+    hearingNotes,
+    isAssigned,
+    refetch,
+    caseClientId,
+  ]);
 
-  const extractedData = useMemo(() => {
+  // ============================================================================
+  // OCR and other handlers
+  // ============================================================================
+
+  const extractedData = useMemo<Record<string, any> | null>(() => {
     const resp: any = ocrResult?.response;
-    return (
+    const raw =
       resp?.data?.extractedData ||
       resp?.data ||
       resp?.extractedData ||
       (ocrResult as any)?.extractedData ||
-      null
-    );
+      null;
+
+    if (!raw) return null;
+    if (typeof raw === "object" && !Array.isArray(raw))
+      return raw as Record<string, any>;
+    if (Array.isArray(raw)) return { items: raw };
+    return { rawText: ensureText(raw) };
   }, [ocrResult]);
 
   const documentId = useMemo(() => {
@@ -388,13 +543,13 @@ export default function CaseDetailScreen() {
   }, [ocrResult, extractedData]);
 
   const extractedJson = useMemo(
-    () => (extractedData ? JSON.stringify(extractedData, null, 2) : null),
-    [extractedData],
+    () => (extractedData ? toPrettyJson(extractedData) : null),
+    [extractedData, toPrettyJson],
   );
 
-  const isCourtDecision = useMemo(
-    () => extractedData?.documentCategory === "court_decision",
-    [extractedData],
+  const extractedJsonPreview = useMemo(
+    () => (extractedJson ? clipText(extractedJson) : null),
+    [extractedJson],
   );
 
   useEffect(() => {
@@ -405,9 +560,9 @@ export default function CaseDetailScreen() {
       return;
     }
 
-    setEditingExtractedJson(JSON.stringify(extractedData, null, 2));
+    setEditingExtractedJson(clipText(toPrettyJson(extractedData), 100000));
     setEditingDocumentType(
-      extractedData.documentType || extractedData.documentCategory || "",
+      ensureText(extractedData.documentType || extractedData.documentCategory),
     );
 
     const originalFromResponse =
@@ -415,13 +570,14 @@ export default function CaseDetailScreen() {
       (ocrResult as any)?.response?.originalName;
 
     setEditingOriginalName(
-      originalFromResponse ||
-        (extractedData as any)?.originalName ||
-        ocrResult?.fileName ||
-        "",
+      ensureText(
+        originalFromResponse ||
+          (extractedData as any)?.originalName ||
+          ocrResult?.fileName,
+      ),
     );
     setIsEditingExtracted(false);
-  }, [extractedData, ocrResult]);
+  }, [extractedData, ocrResult, toPrettyJson]);
 
   const fetchAndPersistExtraction = useCallback(
     async (
@@ -557,7 +713,6 @@ export default function CaseDetailScreen() {
         label: "Declined",
         description: "Case has been declined",
       },
-
       active: {
         icon: "checkmark-circle",
         label: "Active",
@@ -574,14 +729,18 @@ export default function CaseDetailScreen() {
     );
   };
 
+  // FIXED: Upload OCR with proper date formatting
   const uploadOcr = async () => {
     if (!caseId) {
       Alert.alert("Error", "Cannot upload file without case ID.");
       return;
     }
+
     const normalizedHearingDate = hearingDate.trim();
+    const normalizedHearingTime = hearingTime.trim();
     const normalizedHearingLocation = hearingLocation.trim();
     const normalizedHearingNotes = hearingNotes.trim();
+
     if (!isAssigned) {
       Alert.alert(
         "Not Authorized",
@@ -601,17 +760,42 @@ export default function CaseDetailScreen() {
       setUploading(true);
 
       try {
+        const ocrOptions: any = {
+          caseId,
+        };
+
+        // FIXED: Add date if provided with proper formatting
+        if (normalizedHearingDate) {
+          const parsedDate = parseFlexibleDate(normalizedHearingDate);
+          if (parsedDate) {
+            const isoDate = formatDateAsISO(parsedDate);
+            ocrOptions.hearingDate = isoDate;
+            console.log("📅 OCR hearing date:", isoDate);
+          }
+        }
+
+        // Add time separately if provided
+        if (normalizedHearingTime) {
+          ocrOptions.hearingTime = normalizedHearingTime;
+        }
+
+        // Add location and notes
+        if (normalizedHearingLocation) {
+          ocrOptions.hearingLocation = normalizedHearingLocation;
+        }
+        if (normalizedHearingNotes) {
+          ocrOptions.hearingNotes = normalizedHearingNotes;
+        }
+
+        console.log("📤 OCR options:", JSON.stringify(ocrOptions, null, 2));
+
         const res = await OcrService.extractAsync(
           asset.uri,
           asset.name,
           asset.mimeType || "application/pdf",
-          {
-            caseId,
-            hearingDate: normalizedHearingDate || undefined,
-            hearingLocation: normalizedHearingLocation || undefined,
-            hearingNotes: normalizedHearingNotes || undefined,
-          },
+          ocrOptions,
         );
+
         const responsePayload = res?.response ? res.response : res;
         const payload: any =
           responsePayload?.data?.extractedData ||
@@ -628,10 +812,12 @@ export default function CaseDetailScreen() {
 
         const hearingRequest =
           normalizedHearingDate ||
+          normalizedHearingTime ||
           normalizedHearingLocation ||
           normalizedHearingNotes
             ? {
-                hearingDate: normalizedHearingDate,
+                hearingDate: ocrOptions.hearingDate,
+                hearingTime: normalizedHearingTime,
                 hearingLocation: normalizedHearingLocation,
                 hearingNotes: normalizedHearingNotes,
               }
@@ -692,6 +878,159 @@ export default function CaseDetailScreen() {
     }
   };
 
+  const handleSaveExtracted = async () => {
+    if (!ocrResult || !extractedData || !caseId) return;
+    try {
+      const documentType: "court_decision" | "contract" =
+        extractedData?.documentCategory === "court_decision"
+          ? "court_decision"
+          : "contract";
+
+      const payload = {
+        caseId,
+        fileUrl:
+          ocrResult.response?.fileUrl ||
+          extractedData?.fileUrl ||
+          ocrResult.fileUri,
+        fileType: ocrResult.fileType || "application/pdf",
+        extractedData,
+        documentType,
+      };
+      await DocumentSaveService.saveExtracted(payload);
+      Alert.alert(
+        "Saved Successfully",
+        "Extracted data has been saved to the case file.",
+      );
+      refetch();
+    } catch (err: any) {
+      Alert.alert(
+        "Save Failed",
+        err?.response?.data?.message ||
+          err?.message ||
+          "An error occurred while saving.",
+      );
+    }
+  };
+
+  const handleUpdateExtracted = async () => {
+    if (!documentId) {
+      Alert.alert(
+        "Missing Document",
+        "No document is linked to this extraction yet. Upload and process a file first.",
+      );
+      return;
+    }
+
+    let parsedExtracted: Record<string, any> = {};
+    const rawExtracted = editingExtractedJson.trim();
+
+    if (rawExtracted) {
+      try {
+        const parsed = JSON.parse(rawExtracted);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          parsedExtracted = parsed;
+        } else if (Array.isArray(parsed)) {
+          parsedExtracted = { items: parsed };
+        } else {
+          parsedExtracted = { rawText: editingExtractedJson };
+        }
+      } catch {
+        // Allow free text input when it's not valid JSON.
+        parsedExtracted = { rawText: editingExtractedJson };
+      }
+    }
+
+    const payload: any = {};
+    if (parsedExtracted && Object.keys(parsedExtracted).length > 0) {
+      payload.extractedData = parsedExtracted;
+    }
+    if (editingDocumentType.trim()) {
+      payload.documentType = editingDocumentType.trim();
+    }
+    if (editingOriginalName.trim()) {
+      payload.originalName = editingOriginalName.trim();
+    }
+
+    if (!Object.keys(payload).length) {
+      Alert.alert(
+        "Nothing to Update",
+        "Edit the extracted JSON, document type, or file name before saving.",
+      );
+      return;
+    }
+
+    try {
+      setUpdatingExtracted(true);
+      const updatedDocument = await DocumentService.update(documentId, payload);
+
+      const updatedExtracted =
+        updatedDocument?.extractedData &&
+        typeof updatedDocument.extractedData === "object"
+          ? updatedDocument.extractedData
+          : parsedExtracted;
+
+      const previousResponse =
+        (ocrResult as any)?.response &&
+        typeof (ocrResult as any)?.response === "object"
+          ? (ocrResult as any)?.response
+          : typeof ocrResult === "object"
+            ? (ocrResult as any)
+            : {};
+
+      persistOcrResult({
+        ...(ocrResult && typeof ocrResult === "object" ? ocrResult : {}),
+        response: {
+          ...(previousResponse || {}),
+          ...(updatedDocument?.fileUrl
+            ? { fileUrl: updatedDocument.fileUrl }
+            : {}),
+          ...(updatedDocument?.originalName
+            ? { originalName: updatedDocument.originalName }
+            : {}),
+          data: {
+            ...((previousResponse as any)?.data || {}),
+            ...updatedExtracted,
+            documentId: updatedDocument?._id || documentId,
+            caseId: updatedDocument?.caseId || caseId,
+            documentType:
+              updatedDocument?.documentType ||
+              payload.documentType ||
+              editingDocumentType.trim() ||
+              extractedData?.documentType ||
+              extractedData?.documentCategory,
+            ...(updatedDocument?.originalName
+              ? { originalName: updatedDocument.originalName }
+              : {}),
+          },
+        },
+        fileUri:
+          updatedDocument?.fileUrl ||
+          ocrResult?.fileUri ||
+          (ocrResult as any)?.response?.fileUrl,
+        fileName:
+          updatedDocument?.originalName ||
+          updatedDocument?.fileName ||
+          editingOriginalName.trim() ||
+          ocrResult?.fileName,
+        fileType: updatedDocument?.fileType || ocrResult?.fileType,
+      });
+
+      setIsEditingExtracted(false);
+      await refetch();
+
+      Alert.alert("Updated", "Document details were updated successfully.");
+    } catch (err: any) {
+      Alert.alert(
+        "Update Failed",
+        err?.response?.data?.message ||
+          err?.message ||
+          "Could not update extracted data.",
+      );
+    } finally {
+      setUpdatingExtracted(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -742,129 +1081,6 @@ export default function CaseDetailScreen() {
       </View>
     );
   }
-
-  const handleSaveExtracted = async () => {
-    if (!ocrResult || !extractedData || !caseId) return;
-    try {
-      const documentType: "court_decision" | "contract" =
-        extractedData?.documentCategory === "court_decision"
-          ? "court_decision"
-          : "contract";
-
-      const payload = {
-        caseId,
-        fileUrl:
-          ocrResult.response?.fileUrl ||
-          extractedData?.fileUrl ||
-          ocrResult.fileUri,
-        fileType: ocrResult.fileType || "application/pdf",
-        extractedData,
-        documentType,
-      };
-      await DocumentSaveService.saveExtracted(payload);
-      Alert.alert(
-        "Saved Successfully",
-        "Extracted data has been saved to the case file.",
-      );
-      refetch();
-    } catch (err: any) {
-      Alert.alert(
-        "Save Failed",
-        err?.response?.data?.message ||
-          err?.message ||
-          "An error occurred while saving.",
-      );
-    }
-  };
-
-  const handleUpdateExtracted = async () => {
-    if (!documentId) {
-      Alert.alert(
-        "Missing Document",
-        "No document is linked to this extraction yet. Upload and process a file first.",
-      );
-      return;
-    }
-
-    let parsedExtracted: any = {};
-    try {
-      parsedExtracted = editingExtractedJson
-        ? JSON.parse(editingExtractedJson)
-        : {};
-    } catch (err) {
-      Alert.alert(
-        "Invalid JSON",
-        "Please fix the extracted data JSON before saving changes.",
-      );
-      return;
-    }
-
-    const payload: any = {};
-    if (parsedExtracted && Object.keys(parsedExtracted).length > 0) {
-      payload.extractedData = parsedExtracted;
-    }
-    if (editingDocumentType.trim()) {
-      payload.documentType = editingDocumentType.trim();
-    }
-    if (editingOriginalName.trim()) {
-      payload.originalName = editingOriginalName.trim();
-    }
-
-    if (!Object.keys(payload).length) {
-      Alert.alert(
-        "Nothing to Update",
-        "Edit the extracted JSON, document type, or file name before saving.",
-      );
-      return;
-    }
-
-    try {
-      setUpdatingExtracted(true);
-      await DocumentService.update(documentId, payload);
-
-      const nextExtracted = payload.extractedData || extractedData || {};
-      const nextDocumentType =
-        payload.documentType ||
-        extractedData?.documentType ||
-        extractedData?.documentCategory;
-      const nextOriginalName =
-        payload.originalName ||
-        editingOriginalName ||
-        extractedData?.originalName;
-
-      setEditingExtractedJson(JSON.stringify(nextExtracted, null, 2));
-      setEditingDocumentType(nextDocumentType || "");
-      setEditingOriginalName(nextOriginalName || "");
-
-      persistOcrResult({
-        ...(ocrResult || {}),
-        response: {
-          ...(ocrResult as any)?.response,
-          data: {
-            ...((ocrResult as any)?.response?.data || {}),
-            extractedData: nextExtracted,
-            documentId,
-            documentType: nextDocumentType,
-            originalName: nextOriginalName,
-          },
-          fileUrl: (ocrResult as any)?.response?.fileUrl,
-        },
-        fileName: nextOriginalName || ocrResult?.fileName,
-      });
-
-      Alert.alert("Updated", "Document details were updated successfully.");
-      setIsEditingExtracted(false);
-    } catch (err: any) {
-      Alert.alert(
-        "Update Failed",
-        err?.response?.data?.message ||
-          err?.message ||
-          "Could not update extracted data.",
-      );
-    } finally {
-      setUpdatingExtracted(false);
-    }
-  };
 
   const statusColor = getStatusColor(data.status);
 
@@ -1049,10 +1265,10 @@ export default function CaseDetailScreen() {
                 </Text>
 
                 <View style={styles.formField}>
-                  <Text style={styles.inputLabel}>Hearing Date</Text>
+                  <Text style={styles.inputLabel}>Hearing Date *</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. 2025-12-05 2:00 PM"
+                    placeholder="e.g. 2025-12-05 or 05/12/2025"
                     placeholderTextColor={`${palette.slate}80`}
                     value={hearingDate}
                     onChangeText={setHearingDate}
@@ -1060,8 +1276,23 @@ export default function CaseDetailScreen() {
                     keyboardType="default"
                   />
                   <Text style={styles.inputHint}>
-                    Required to create a hearing and send a notification. Any
-                    date/time format is accepted.
+                    Required. Use YYYY-MM-DD format (e.g., 2025-12-05)
+                  </Text>
+                </View>
+
+                <View style={styles.formField}>
+                  <Text style={styles.inputLabel}>Hearing Time (optional)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. 2:00 PM or 14:00"
+                    placeholderTextColor={`${palette.slate}80`}
+                    value={hearingTime}
+                    onChangeText={setHearingTime}
+                    autoCapitalize="none"
+                    keyboardType="default"
+                  />
+                  <Text style={styles.inputHint}>
+                    Optional. Use 12-hour (2:00 PM) or 24-hour (14:00) format.
                   </Text>
                 </View>
 
@@ -1232,9 +1463,11 @@ export default function CaseDetailScreen() {
                         No specific fields returned from OCR. Raw data will be
                         displayed instead.
                       </Text>
-                      {extractedJson && (
+                      {extractedJsonPreview && (
                         <View style={styles.rawBlock}>
-                          <Text style={styles.rawText}>{extractedJson}</Text>
+                          <Text style={styles.rawText}>
+                            {extractedJsonPreview}
+                          </Text>
                         </View>
                       )}
                     </>
@@ -1311,7 +1544,7 @@ export default function CaseDetailScreen() {
                             autoCorrect={false}
                           />
                           <Text style={styles.inputHint}>
-                            Edit any extracted fields. Must be valid JSON.
+                            You can write JSON or plain text.
                           </Text>
                         </View>
 
@@ -1320,7 +1553,20 @@ export default function CaseDetailScreen() {
                             styles.primaryButton,
                             updatingExtracted && styles.disabledBtn,
                           ]}
-                          onPress={handleUpdateExtracted}
+                          onPress={() => {
+                            handleUpdateExtracted().catch((err: any) => {
+                              console.log(
+                                "Unhandled error in Save Corrections",
+                                err,
+                              );
+                              Alert.alert(
+                                "Update Failed",
+                                err?.response?.data?.message ||
+                                  err?.message ||
+                                  "Unexpected error while saving corrections.",
+                              );
+                            });
+                          }}
                           disabled={updatingExtracted}
                         >
                           {updatingExtracted ? (
@@ -1485,7 +1731,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     gap: 16,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   centerContent: {
     flex: 1,

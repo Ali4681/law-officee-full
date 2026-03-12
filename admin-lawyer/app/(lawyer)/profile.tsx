@@ -5,9 +5,11 @@ import { showToast } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Linking,
   Modal,
@@ -59,6 +61,12 @@ export default function ProfileTab() {
   const [savingEmail, setSavingEmail] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Animation values
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -76,7 +84,70 @@ export default function ProfileTab() {
   };
 
   const signOut = () => {
+    // Animate logout button press
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: 0.9,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(rotateAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+
     setShowLogoutConfirm(true);
+  };
+
+  const handleLogout = async () => {
+    setShowLogoutConfirm(false);
+    setIsLoggingOut(true);
+
+    // Fade out animation
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+
+    // Simulate a brief delay for smooth UX
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    try {
+      await logoutMutation.mutateAsync();
+      showToast({
+        message: "Signed out successfully.",
+        type: "info",
+      });
+    } catch (err) {
+      console.log("Logout failed", err);
+      showToast({
+        message: "Failed to sign out. Please try again.",
+        type: "error",
+      });
+      // Reset animations on error
+      fadeAnim.setValue(1);
+      setIsLoggingOut(false);
+      return;
+    } finally {
+      router.replace("/sign-in");
+    }
   };
 
   const pickAvatar = async () => {
@@ -147,7 +218,7 @@ export default function ProfileTab() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -181,181 +252,213 @@ export default function ProfileTab() {
   const verificationStatus = profile?.verificationStatus || "pending";
   const statusColor = statusColors[verificationStatus];
 
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={palette.gold}
-            colors={[palette.gold]}
-            progressBackgroundColor={palette.navy}
-          />
-        }
-      >
-        {/* Header with Gradient Background */}
-        <View style={styles.headerSection}>
-          <View style={styles.headerGradient}>
-            <Text style={styles.title}>Lawyer profile </Text>
-            <Text style={styles.subtitle}>
-              Manage your account and credentials
-            </Text>
-          </View>
-        </View>
+      {/* Logout Icon Button - Top Right */}
+      <View style={styles.headerIcons}>
+        <Animated.View
+          style={{
+            transform: [{ scale: scaleAnim }, { rotate: spin }],
+          }}
+        >
+          <Pressable
+            onPress={signOut}
+            disabled={isLoggingOut}
+            style={({ pressed }) => [
+              styles.logoutIconButton,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons name="log-out-outline" size={24} color="#EF4444" />
+          </Pressable>
+        </Animated.View>
+      </View>
 
-        {/* Profile Card with Avatar */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarSection}>
-            <Pressable onPress={pickAvatar} style={styles.avatarContainer}>
-              <View style={styles.avatarWrapper}>
-                {profile?.avatarUrl ? (
-                  <Image
-                    source={{ uri: resolveUrl(profile.avatarUrl) }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Ionicons name="person" size={48} color={palette.gold} />
+      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={palette.gold}
+              colors={[palette.gold]}
+              progressBackgroundColor={palette.navy}
+            />
+          }
+        >
+          {/* Header with Gradient Background */}
+          <View style={styles.headerSection}>
+            <View style={styles.headerGradient}>
+              <Text style={styles.title}>Lawyer profile </Text>
+              <Text style={styles.subtitle}>
+                Manage your account and credentials
+              </Text>
+            </View>
+          </View>
+
+          {/* Profile Card with Avatar */}
+          <View style={styles.profileCard}>
+            <View style={styles.avatarSection}>
+              <Pressable onPress={pickAvatar} style={styles.avatarContainer}>
+                <View style={styles.avatarWrapper}>
+                  {profile?.avatarUrl ? (
+                    <Image
+                      source={{ uri: resolveUrl(profile.avatarUrl) }}
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Ionicons name="person" size={48} color={palette.gold} />
+                    </View>
+                  )}
+                  <View style={styles.avatarBadge}>
+                    <Ionicons name="camera" size={16} color="#fff" />
+                  </View>
+                </View>
+                {uploadingAvatar && (
+                  <View style={styles.uploadingOverlay}>
+                    <Text style={styles.uploadingText}>Updating...</Text>
                   </View>
                 )}
-                <View style={styles.avatarBadge}>
-                  <Ionicons name="camera" size={16} color="#fff" />
+              </Pressable>
+
+              <Text style={styles.profileName}>
+                {profile?.profile?.firstName || "Attorney"}
+              </Text>
+              <Text style={styles.profileRole}>
+                {profile?.role?.toUpperCase()}
+              </Text>
+            </View>
+
+            {/* Verification Status Badge */}
+            {profile?.role === "lawyer" && (
+              <View
+                style={[styles.statusCard, { backgroundColor: statusColor.bg }]}
+              >
+                <View style={styles.statusIconWrapper}>
+                  <Ionicons
+                    name={
+                      verificationStatus === "approved"
+                        ? "checkmark-circle"
+                        : verificationStatus === "rejected"
+                          ? "close-circle"
+                          : "time"
+                    }
+                    size={20}
+                    color={statusColor.text}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.statusLabel}>Verification Status</Text>
+                  <Text
+                    style={[styles.statusValue, { color: statusColor.text }]}
+                  >
+                    {statusLabels[verificationStatus]}
+                  </Text>
                 </View>
               </View>
-              {uploadingAvatar && (
-                <View style={styles.uploadingOverlay}>
-                  <Text style={styles.uploadingText}>Updating...</Text>
-                </View>
-              )}
-            </Pressable>
-
-            <Text style={styles.profileName}>
-              {profile?.profile?.firstName || "Attorney"}
-            </Text>
-            <Text style={styles.profileRole}>
-              {profile?.role?.toUpperCase()}
-            </Text>
+            )}
           </View>
 
-          {/* Verification Status Badge */}
-          {profile?.role === "lawyer" && (
-            <View
-              style={[styles.statusCard, { backgroundColor: statusColor.bg }]}
-            >
-              <View style={styles.statusIconWrapper}>
-                <Ionicons
-                  name={
-                    verificationStatus === "approved"
-                      ? "checkmark-circle"
-                      : verificationStatus === "rejected"
-                      ? "close-circle"
-                      : "time"
-                  }
-                  size={20}
-                  color={statusColor.text}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.statusLabel}>Verification Status</Text>
-                <Text style={[styles.statusValue, { color: statusColor.text }]}>
-                  {statusLabels[verificationStatus]}
-                </Text>
-              </View>
-            </View>
-          )}
-        </View>
+          {/* Information Cards */}
+          <View style={styles.infoSection}>
+            <Text style={styles.sectionTitle}>Account Information</Text>
 
-        {/* Information Cards */}
-        <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Account Information</Text>
-
-          {/* Email Card */}
-          <View style={styles.infoCard}>
-            <View style={styles.infoIconWrapper}>
-              <Ionicons name="mail" size={20} color={palette.gold} />
-            </View>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Email Address</Text>
-              <Text style={styles.infoValue}>{profile?.email}</Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                setNewEmail(profile?.email || "");
-                setEmailModal(true);
-              }}
-              style={({ pressed }) => [
-                styles.editButton,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Ionicons name="pencil" size={16} color={palette.gold} />
-            </Pressable>
-          </View>
-
-          {/* Avatar Actions Card */}
-          {profile?.avatarUrl && (
+            {/* Email Card */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconWrapper}>
-                <Ionicons name="image" size={20} color={palette.gold} />
+                <Ionicons name="mail" size={20} color={palette.gold} />
               </View>
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Profile Picture</Text>
-                <Text style={styles.infoValue}>Manage your avatar</Text>
+                <Text style={styles.infoLabel}>Email Address</Text>
+                <Text style={styles.infoValue}>{profile?.email}</Text>
               </View>
               <Pressable
-                onPress={removeAvatar}
+                onPress={() => {
+                  setNewEmail(profile?.email || "");
+                  setEmailModal(true);
+                }}
                 style={({ pressed }) => [
-                  styles.deleteButton,
+                  styles.editButton,
                   pressed && { opacity: 0.7 },
                 ]}
               >
-                <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                <Ionicons name="pencil" size={16} color={palette.gold} />
               </Pressable>
             </View>
-          )}
 
-          {/* Certificate Card */}
-          {profile?.certificateUrl && (
-            <Pressable
-              onPress={() =>
-                Linking.openURL(resolveUrl(profile.certificateUrl!))
-              }
-              style={({ pressed }) => [
-                styles.infoCard,
-                pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View style={styles.infoIconWrapper}>
-                <Ionicons name="document-text" size={20} color={palette.gold} />
+            {/* Avatar Actions Card */}
+            {profile?.avatarUrl && (
+              <View style={styles.infoCard}>
+                <View style={styles.infoIconWrapper}>
+                  <Ionicons name="image" size={20} color={palette.gold} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Profile Picture</Text>
+                  <Text style={styles.infoValue}>Manage your avatar</Text>
+                </View>
+                <Pressable
+                  onPress={removeAvatar}
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </Pressable>
               </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Certification Document</Text>
-                <Text style={styles.infoValue}>Tap to view certificate</Text>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={palette.slate}
-              />
-            </Pressable>
-          )}
+            )}
+
+            {/* Certificate Card */}
+            {profile?.certificateUrl && (
+              <Pressable
+                onPress={() =>
+                  Linking.openURL(resolveUrl(profile.certificateUrl!))
+                }
+                style={({ pressed }) => [
+                  styles.infoCard,
+                  pressed && { opacity: 0.7, transform: [{ scale: 0.98 }] },
+                ]}
+              >
+                <View style={styles.infoIconWrapper}>
+                  <Ionicons
+                    name="document-text"
+                    size={20}
+                    color={palette.gold}
+                  />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Certification Document</Text>
+                  <Text style={styles.infoValue}>Tap to view certificate</Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={palette.slate}
+                />
+              </Pressable>
+            )}
+          </View>
+        </ScrollView>
+      </Animated.View>
+
+      {/* Logging Out Overlay */}
+      {isLoggingOut && (
+        <View style={styles.loggingOutOverlay}>
+          <View style={styles.loggingOutCard}>
+            <ActivityIndicator size="large" color={palette.gold} />
+            <Text style={styles.loggingOutText}>Signing out...</Text>
+            <Text style={styles.loggingOutSubtext}>Please wait a moment</Text>
+          </View>
         </View>
-
-        {/* Logout Button */}
-        <Pressable
-          onPress={signOut}
-          style={({ pressed }) => [
-            styles.logoutButton,
-            pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
-          ]}
-        >
-          <Ionicons name="log-out-outline" size={20} color={palette.navy} />
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </Pressable>
-      </ScrollView>
+      )}
 
       {/* Email Edit Modal */}
       <Modal
@@ -428,7 +531,7 @@ export default function ProfileTab() {
         </View>
       </Modal>
 
-      {/* Logout Confirmation */}
+      {/* Enhanced Logout Confirmation Modal */}
       <Modal
         animationType="fade"
         transparent
@@ -436,10 +539,25 @@ export default function ProfileTab() {
         onRequestClose={() => setShowLogoutConfirm(false)}
       >
         <View style={styles.confirmOverlay}>
-          <View style={styles.confirmCard}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowLogoutConfirm(false)}
+          />
+          <Pressable
+            style={styles.confirmCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {/* Icon Header */}
+            <View style={styles.confirmIconContainer}>
+              <View style={styles.confirmIconWrapper}>
+                <Ionicons name="log-out-outline" size={48} color="#EF4444" />
+              </View>
+            </View>
+
             <Text style={styles.confirmTitle}>Sign Out</Text>
             <Text style={styles.confirmMessage}>
-              Are you sure you want to sign out of your account?
+              Are you sure you want to sign out of your account? You'll need to
+              log in again to access your profile.
             </Text>
             <View style={styles.confirmButtons}>
               <Pressable
@@ -457,29 +575,21 @@ export default function ProfileTab() {
                   (pressed || logoutMutation.isPending) && { opacity: 0.9 },
                 ]}
                 disabled={logoutMutation.isPending}
-                onPress={async () => {
-                  try {
-                    await logoutMutation.mutateAsync();
-                    showToast({
-                      message: "Signed out successfully.",
-                      type: "info",
-                    });
-                  } catch (err) {
-                    console.log("Logout failed", err);
-                    showToast({
-                      message: "Failed to sign out. Please try again.",
-                      type: "error",
-                    });
-                  } finally {
-                    setShowLogoutConfirm(false);
-                    router.replace("/sign-in");
-                  }
-                }}
+                onPress={handleLogout}
               >
-                <Text style={styles.confirmBtnPrimaryText}>Sign Out</Text>
+                <View style={styles.confirmBtnPrimaryContent}>
+                  <Ionicons
+                    name="log-out-outline"
+                    size={20}
+                    color={palette.navy}
+                  />
+                  <Text style={styles.confirmBtnPrimaryText}>
+                    {logoutMutation.isPending ? "Signing out..." : "Sign Out"}
+                  </Text>
+                </View>
               </Pressable>
             </View>
-          </View>
+          </Pressable>
         </View>
       </Modal>
     </SafeAreaView>
@@ -491,8 +601,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.darkNavy,
   },
+  headerIcons: {
+    position: "absolute",
+    top: 60,
+    right: 20,
+    zIndex: 100,
+  },
+  logoutIconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
   scrollContent: {
     padding: 20,
+    paddingTop: 20,
     paddingBottom: 16,
   },
   headerSection: {
@@ -676,24 +808,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
+  loggingOutOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(6, 24, 35, 0.95)",
     justifyContent: "center",
-    backgroundColor: palette.gold,
-    padding: 18,
-    borderRadius: 16,
-    gap: 10,
-    shadowColor: palette.gold,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    alignItems: "center",
+    zIndex: 1000,
   },
-  logoutText: {
-    color: palette.navy,
-    fontSize: 17,
+  loggingOutCard: {
+    backgroundColor: "#0f2c45",
+    borderRadius: 28,
+    padding: 40,
+    alignItems: "center",
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "#ffffff12",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 20,
+    minWidth: 280,
+  },
+  loggingOutText: {
+    color: palette.gold,
+    fontSize: 20,
     fontWeight: "800",
+  },
+  loggingOutSubtext: {
+    color: "#ffffff60",
+    fontSize: 14,
+    fontWeight: "500",
   },
   modalOverlay: {
     flex: 1,
@@ -795,28 +940,42 @@ const styles = StyleSheet.create({
   },
   confirmOverlay: {
     flex: 1,
-    backgroundColor: "rgba(6, 24, 35, 0.85)",
+    backgroundColor: "rgba(6, 24, 35, 0.92)",
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
   },
   confirmCard: {
     width: "100%",
-    maxWidth: 340,
+    maxWidth: 360,
     backgroundColor: "#0f2c45",
-    borderRadius: 24,
-    padding: 28,
+    borderRadius: 28,
+    padding: 32,
     gap: 20,
     borderWidth: 1,
     borderColor: "#ffffff12",
     shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 12,
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 16,
+  },
+  confirmIconContainer: {
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  confirmIconWrapper: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(239, 68, 68, 0.25)",
   },
   confirmTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "900",
     color: "#fff",
     letterSpacing: -0.3,
@@ -837,7 +996,7 @@ const styles = StyleSheet.create({
   confirmBtnSecondary: {
     flex: 1,
     paddingVertical: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: "#ffffff20",
     backgroundColor: "#ffffff08",
@@ -845,24 +1004,29 @@ const styles = StyleSheet.create({
   },
   confirmBtnSecondaryText: {
     fontWeight: "800",
-    fontSize: 15,
+    fontSize: 16,
     color: "#fff",
   },
   confirmBtnPrimary: {
     flex: 1,
     paddingVertical: 16,
-    borderRadius: 14,
-    backgroundColor: palette.gold,
+    borderRadius: 16,
+    backgroundColor: "#EF4444",
     alignItems: "center",
-    shadowColor: palette.gold,
+    shadowColor: "#EF4444",
     shadowOpacity: 0.4,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  confirmBtnPrimaryContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   confirmBtnPrimaryText: {
     fontWeight: "900",
-    fontSize: 15,
-    color: palette.navy,
+    fontSize: 16,
+    color: "#fff",
   },
 });

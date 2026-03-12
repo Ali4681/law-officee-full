@@ -22,4 +22,8 @@ export class Hearing {
 }
 
 export const HearingSchema = SchemaFactory.createForClass(Hearing);
-HearingSchema.index({ caseId: 1, date: 1, location: 1 }, { unique: true });
+
+// Remove the overly restrictive unique index
+// Instead, add a non-unique compound index for better query performance
+HearingSchema.index({ caseId: 1, date: 1 });
+HearingSchema.index({ caseId: 1 });

@@ -102,6 +102,8 @@ export class DocumentsController {
       caseId: string;
       fileUrl: string;
       fileType: string;
+      fileName?: string;
+      originalName?: string;
       extractedData: any;
       documentType: 'court_decision' | 'contract';
     },

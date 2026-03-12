@@ -1,5 +1,7 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { loadAuthToken } from "@/services/api";
 import { Stack } from "expo-router";
+import { useEffect, useRef } from "react";
 import { StatusBar, StyleSheet, View } from "react-native";
 
 const palette = {
@@ -14,6 +16,23 @@ const palette = {
 export default function AuthLayout() {
   const colorScheme = useColorScheme();
   const backgroundColor = colorScheme === "dark" ? palette.navy : palette.light;
+  const hasLoadedToken = useRef(false);
+
+  // Load auth token only once when the layout first mounts
+  useEffect(() => {
+    if (!hasLoadedToken.current) {
+      hasLoadedToken.current = true;
+      loadAuthToken()
+        .then((token) => {
+          if (token) {
+            console.log("✅ Auth token loaded in AuthLayout");
+          }
+        })
+        .catch((error) => {
+          console.error("❌ Error loading token:", error);
+        });
+    }
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
@@ -115,14 +134,6 @@ export default function AuthLayout() {
           options={{
             title: "Sign Up",
             animation: "slide_from_right",
-          }}
-        />
-        <Stack.Screen
-          name="forgot-password"
-          options={{
-            title: "Forgot Password",
-            animation: "slide_from_bottom",
-            presentation: "modal",
           }}
         />
       </Stack>

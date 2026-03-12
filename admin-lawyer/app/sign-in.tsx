@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Notifications from "expo-notifications";
 import { Link, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -22,6 +21,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthService } from "@/services/auth.service";
 import { showToast } from "@/utils/toast";
+
+// Conditionally import expo-notifications only if not in Expo Go
+let Notifications: any = null;
+if (Constants.appOwnership !== "expo") {
+  Notifications = require("expo-notifications");
+}
 
 const { width } = Dimensions.get("window");
 
@@ -48,9 +53,15 @@ export default function SignInScreen() {
 
   const registerDevicePushToken = async () => {
     try {
+      // Skip if notifications not available (e.g., in Expo Go)
+      if (!Notifications) {
+        console.log("Notifications not available in this environment");
+        return null;
+      }
+
       if (Constants.appOwnership === "expo") {
         console.log(
-          "Running in Expo Go; attempting token fetch but remote push may be limited."
+          "Running in Expo Go; attempting token fetch but remote push may be limited.",
         );
       }
 
@@ -63,7 +74,7 @@ export default function SignInScreen() {
         console.log("Push token projectId resolved:", projectId);
       } else {
         console.log(
-          "Expo push token skipped: set EXPO_PUBLIC_EAS_PROJECT_ID or EAS projectId in config."
+          "Expo push token skipped: set EXPO_PUBLIC_EAS_PROJECT_ID or EAS projectId in config.",
         );
       }
 
@@ -91,7 +102,7 @@ export default function SignInScreen() {
       if (deviceToken?.data) {
         console.log(
           `Device push token (${deviceToken.type}):`,
-          deviceToken.data
+          deviceToken.data,
         );
       }
 
@@ -120,7 +131,10 @@ export default function SignInScreen() {
           });
           console.log("Registered device token with backend");
         } catch (registerErr) {
-          console.log("Failed to register device token with backend", registerErr);
+          console.log(
+            "Failed to register device token with backend",
+            registerErr,
+          );
         }
       }
 
@@ -164,7 +178,10 @@ export default function SignInScreen() {
 
   const handleSubmit = async () => {
     if (!email.trim() || !password) {
-      showToast({ message: "Please enter both email and password.", type: "error" });
+      showToast({
+        message: "Please enter both email and password.",
+        type: "error",
+      });
       return;
     }
 
@@ -185,7 +202,8 @@ export default function SignInScreen() {
         router.replace("/(lawyer)/cases");
       } else {
         showToast({
-          message: "Access restricted: Only admins and lawyers can access this app.",
+          message:
+            "Access restricted: Only admins and lawyers can access this app.",
           type: "error",
         });
         router.replace("/sign-in");

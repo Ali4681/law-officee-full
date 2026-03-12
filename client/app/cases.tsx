@@ -39,7 +39,6 @@ const palette = {
 const translations = {
   title: "قضاياك",
   casesInProgress: "قضية قيد التنفيذ",
-  case: "قضية",
   loadingCases: "جاري تحميل قضاياك...",
   unableToLoad: "تعذر تحميل القضايا",
   sessionExpired: "انتهت صلاحية جلستك. الرجاء تسجيل الدخول مرة أخرى.",
@@ -444,7 +443,6 @@ export default function CasesScreen() {
           </ThemedText>
           <ThemedText style={[styles.subheading, { color: metaColor }]}>
             {cases.length}{" "}
-            {cases.length === 1 ? translations.case : translations.case}{" "}
             {translations.casesInProgress}
           </ThemedText>
         </View>
@@ -873,7 +871,7 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     left: 24,
-    bottom: 100,
+    bottom: 150,
     zIndex: 10,
     width: 64,
     height: 64,
@@ -890,7 +888,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 32,
     fontWeight: "800",
-    lineHeight: 70,
+    lineHeight: 50,
     fontFamily: "NotoNaskhArabic-Bold",
   },
 });

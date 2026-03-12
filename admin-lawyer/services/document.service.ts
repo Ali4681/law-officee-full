@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import { api } from "./api";
 
 export interface UploadDocumentPayload {
@@ -64,10 +65,10 @@ export const DocumentService = {
     )}/documents/upload`;
 
     // ------------------ UPLOAD ---------------------
-    const result = await FileSystem.uploadAsync(uploadUrl, fileUri, {
+    const result = await LegacyFileSystem.uploadAsync(uploadUrl, fileUri, {
       fieldName: "file",
       httpMethod: "POST",
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      uploadType: LegacyFileSystem.FileSystemUploadType.MULTIPART,
       mimeType: payload.fileType || "application/pdf",
 
       headers: {

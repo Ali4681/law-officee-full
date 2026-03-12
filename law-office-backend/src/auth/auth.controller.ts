@@ -8,6 +8,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthDto } from './dto/auth.dto';
@@ -33,25 +34,79 @@ export class AuthController {
           cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
         },
       }),
+      fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Only PDF files are allowed'), false);
+        }
+      },
     }),
   )
   async signup(
-    @Body() createUserDto: CreateUserDto,
+    @Body() body: any,
     @UploadedFile() certificate?: Express.Multer.File,
   ) {
-    const isLawyer = createUserDto.role === 'lawyer';
-    if (isLawyer && !certificate) {
-      throw new BadRequestException('Certificate is required for lawyers');
-    }
-
-    const certificateUrl = certificate
-      ? `/uploads/certificates/${certificate.filename}`
-      : undefined;
-
-    return this.authService.signup({
-      ...createUserDto,
-      certificateUrl,
+    console.log('📥 Received signup request:', {
+      email: body.email,
+      role: body.role,
+      hasCertificate: !!certificate,
+      bodyKeys: Object.keys(body),
     });
+
+    try {
+      // Parse FormData fields
+      const createUserDto: CreateUserDto = {
+        email: body.email,
+        password: body.password,
+        role: body.role,
+      };
+
+      // Parse specialization (sent as JSON string)
+      if (body.specialization) {
+        try {
+          createUserDto.specialization = JSON.parse(body.specialization);
+        } catch (e) {
+          console.error('Failed to parse specialization:', e);
+        }
+      }
+
+      // Parse profile (sent as JSON string)
+      if (body.profile) {
+        try {
+          createUserDto.profile = JSON.parse(body.profile);
+          console.log('📝 Parsed profile:', createUserDto.profile);
+        } catch (e) {
+          console.error('Failed to parse profile:', e);
+        }
+      }
+
+      // Validate lawyer requirements
+      const isLawyer = createUserDto.role === 'lawyer';
+      if (isLawyer && !certificate) {
+        throw new BadRequestException('Certificate is required for lawyers');
+      }
+
+      const certificateUrl = certificate
+        ? `/uploads/certificates/${certificate.filename}`
+        : undefined;
+
+      const result = await this.authService.signup({
+        ...createUserDto,
+        certificateUrl,
+      });
+
+      console.log('✅ Signup successful, returning tokens');
+      return result;
+    } catch (error) {
+      // ✅ Handle duplicate email error
+      if (error.code === 11000) {
+        throw new ConflictException(
+          'An account with this email already exists',
+        );
+      }
+      throw error;
+    }
   }
 
   @Post('login')
@@ -67,7 +122,7 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt-refresh'))
   @Post('refresh')
   async refresh(@Req() req) {
-    console.log('Refresh endpoint hit'); // should log now
+    console.log('Refresh endpoint hit');
     const user = req.user;
     console.log('Payload from strategy:', user);
     return this.authService.refreshTokens(user.sub, user.role);

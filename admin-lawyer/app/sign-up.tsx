@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, useRouter } from "expo-router";
-import * as DocumentPicker from "expo-document-picker";
 import { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -58,9 +58,11 @@ export default function SignUpScreen() {
   const [showPasswordRequirements, setShowPasswordRequirements] =
     useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [certificate, setCertificate] = useState<
-    { uri: string; name: string; type?: string | null } | null
-  >(null);
+  const [certificate, setCertificate] = useState<{
+    uri: string;
+    name: string;
+    type?: string | null;
+  } | null>(null);
 
   const canSubmit = useMemo(() => {
     return (
@@ -179,7 +181,8 @@ export default function SignUpScreen() {
       setIsSubmitting(true);
       if (!certificate) {
         showToast({
-          message: "You must upload your accreditation certificate to register.",
+          message:
+            "You must upload your accreditation certificate to register.",
           type: "error",
         });
         return;
@@ -229,9 +232,9 @@ export default function SignUpScreen() {
       });
     } catch (err) {
       showToast({
-      message: "Could not pick the certificate, please try again.",
-      type: "error",
-    });
+        message: "Could not pick the certificate, please try again.",
+        type: "error",
+      });
     }
   };
 
@@ -432,7 +435,6 @@ export default function SignUpScreen() {
                   <Text style={styles.helperText}>
                     Tip: Describe your practice areas however you like
                   </Text>
-
                 </View>
 
                 {/* Divider */}
@@ -444,9 +446,12 @@ export default function SignUpScreen() {
 
                 {/* Certificate Upload */}
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Certification Document (Required)</Text>
+                  <Text style={styles.sectionTitle}>
+                    Certification Document (Required)
+                  </Text>
                   <Text style={styles.sectionSubtitle}>
-                    Upload a PDF or image of your accreditation certificate to complete your registration as a lawyer
+                    Upload a PDF or image of your accreditation certificate to
+                    complete your registration as a lawyer
                   </Text>
                 </View>
                 <Pressable
@@ -456,14 +461,22 @@ export default function SignUpScreen() {
                     pressed && styles.uploadBtnPressed,
                   ]}
                 >
-                  <Ionicons name="document-attach" size={18} color={palette.navy} />
+                  <Ionicons
+                    name="document-attach"
+                    size={18}
+                    color={palette.navy}
+                  />
                   <Text style={styles.uploadText}>
                     {certificate ? "Change certificate" : "Upload certificate"}
                   </Text>
                 </Pressable>
                 {certificate && (
                   <View style={styles.certificateRow}>
-                    <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={18}
+                      color="#22c55e"
+                    />
                     <Text style={styles.certificateName} numberOfLines={1}>
                       {certificate.name}
                     </Text>

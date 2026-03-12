@@ -1,20 +1,22 @@
 ﻿import { useChats, useMessages, useSendMessage } from "@/hooks/useChat";
 import { api } from "@/services/api";
 import { ChatSummary } from "@/types/chat";
+import { showToast } from "@/utils/toast";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
-import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -32,13 +34,25 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { showToast } from "@/utils/toast";
+
+// Declare module properties that TypeScript doesn't recognize
+declare module "expo-file-system" {
+  export const documentDirectory: string | null;
+  export const cacheDirectory: string | null;
+  export function downloadAsync(
+    uri: string,
+    fileUri: string,
+  ): Promise<{ uri: string }>;
+}
 
 const palette = {
   navy: "#0A2436",
   gold: "#C6A667",
   light: "#F2F2F2",
   slate: "#566375",
+  darkBlue: "#081b28",
+  deepBlue: "#0c2132",
+  accentBlue: "#1a3a52",
 };
 
 const { width } = Dimensions.get("window");
@@ -70,7 +84,14 @@ export default function ChatTab() {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [viewerName, setViewerName] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  // Animation values
+  const composerScale = useRef(new Animated.Value(1)).current;
+  const inputBorderAnim = useRef(new Animated.Value(0)).current;
+  const sendButtonScale = useRef(new Animated.Value(0.9)).current;
+  const attachButtonRotate = useRef(new Animated.Value(0)).current;
 
   const {
     data: chats,
@@ -79,7 +100,7 @@ export default function ChatTab() {
     isRefetching: refreshingChats,
   } = useChats();
   const { data: messages, isLoading: loadingMessages } = useMessages(
-    selectedChat || undefined
+    selectedChat || undefined,
   );
   const sendMutation = useSendMessage();
 
@@ -96,18 +117,47 @@ export default function ChatTab() {
   }, [messages]);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () =>
-      setKeyboardVisible(true)
-    );
-    const hideSub = Keyboard.addListener("keyboardDidHide", () =>
-      setKeyboardVisible(false)
-    );
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
+      Animated.spring(composerScale, {
+        toValue: 1.02,
+        useNativeDriver: true,
+        friction: 8,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+      Animated.spring(composerScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 8,
+      }).start();
+    });
 
     return () => {
       showSub.remove();
       hideSub.remove();
     };
   }, []);
+
+  // Animate input border on focus
+  useEffect(() => {
+    Animated.timing(inputBorderAnim, {
+      toValue: inputFocused ? 1 : 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+  }, [inputFocused]);
+
+  // Animate send button based on message content
+  useEffect(() => {
+    const hasContent = message.trim().length > 0 || attachments.length > 0;
+    Animated.spring(sendButtonScale, {
+      toValue: hasContent ? 1 : 0.9,
+      useNativeDriver: true,
+      friction: 6,
+    }).start();
+  }, [message, attachments]);
 
   const keyboardOffset =
     Platform.OS === "ios"
@@ -117,6 +167,20 @@ export default function ChatTab() {
   const send = () => {
     if (!selectedChat || !receiver || !userId) return;
     if (!message.trim() && attachments.length === 0) return;
+
+    // Animate send button
+    Animated.sequence([
+      Animated.timing(sendButtonScale, {
+        toValue: 0.8,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(sendButtonScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 6,
+      }),
+    ]).start();
 
     sendMutation.mutate({
       chatId: selectedChat,
@@ -158,7 +222,10 @@ export default function ChatTab() {
       suggestedName ||
       uri.split("/").pop() ||
       `attachment-${Date.now()}.${isImageUri(uri) ? "jpg" : "bin"}`;
-    const destination = `${FileSystem.documentDirectory}${filename}`;
+
+    const docDir =
+      FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? "";
+    const destination = `${docDir}${filename}`;
 
     try {
       setDownloading(true);
@@ -214,6 +281,20 @@ export default function ChatTab() {
   };
 
   const pickAttachment = async () => {
+    // Rotate animation for attach button
+    Animated.sequence([
+      Animated.timing(attachButtonRotate, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(attachButtonRotate, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
     try {
       const result = await DocumentPicker.getDocumentAsync({
         multiple: true,
@@ -230,7 +311,7 @@ export default function ChatTab() {
             "mimeType" in file
               ? file.mimeType || undefined
               : (file as any).type,
-        }))
+        })),
       );
     } catch (err) {
       console.log("Attachment pick error", err);
@@ -265,9 +346,10 @@ export default function ChatTab() {
               ? "image/jpeg"
               : asset.mimeType || "image/jpeg",
         },
-      ].slice(0, 5)
+      ].slice(0, 5),
     );
   };
+
   const openAttachChooser = () => {
     const options = ["Photo from library", "File from device", "Cancel"];
     const cancelButtonIndex = 2;
@@ -282,7 +364,7 @@ export default function ChatTab() {
         (buttonIndex) => {
           if (buttonIndex === 0) pickPhotoFromGallery();
           if (buttonIndex === 1) pickAttachment();
-        }
+        },
       );
     } else {
       Alert.alert("Attach", "Choose attachment type", [
@@ -402,7 +484,7 @@ export default function ChatTab() {
               onLongPress={() =>
                 downloadAttachment(
                   item.image || item.attachments?.[0],
-                  (item.image || item.attachments?.[0])?.split("/")?.pop()
+                  (item.image || item.attachments?.[0])?.split("/")?.pop(),
                 )
               }
               delayLongPress={500}
@@ -427,14 +509,14 @@ export default function ChatTab() {
                   }
                   delayLongPress={500}
                 >
-                    <Ionicons
-                      name="document-text-outline"
-                      size={14}
-                      color={palette.navy}
-                    />
-                    <Text style={styles.attachmentLabel} numberOfLines={1}>
-                      {att.split("/").pop()}
-                    </Text>
+                  <Ionicons
+                    name="document-text-outline"
+                    size={14}
+                    color={palette.navy}
+                  />
+                  <Text style={styles.attachmentLabel} numberOfLines={1}>
+                    {att.split("/").pop()}
+                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -456,6 +538,16 @@ export default function ChatTab() {
       ? selectedChatData.user2Id
       : selectedChatData.user1Id
     : null;
+
+  const borderColor = inputBorderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["#ffffff20", palette.gold],
+  });
+
+  const rotateInterpolate = attachButtonRotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
 
   // Chat List View
   const renderChatList = () => (
@@ -526,7 +618,7 @@ export default function ChatTab() {
             <View style={styles.chatHeaderAvatar}>
               <Text style={styles.chatHeaderAvatarText}>
                 {getInitialsFrom(
-                  selectedChatData?.otherUser?.name || otherUserId
+                  selectedChatData?.otherUser?.name || otherUserId,
                 )}
               </Text>
             </View>
@@ -567,88 +659,147 @@ export default function ChatTab() {
                 }
               />
             )}
-      </View>
+          </View>
 
-      {/* Composer */}
-      <View
-        style={[
+          {/* Enhanced Composer */}
+          <Animated.View
+            style={[
               styles.composerSection,
               {
                 paddingBottom: Math.max(
                   insets.bottom,
-                  keyboardVisible ? 2 : 12
+                  keyboardVisible ? 8 : 12,
                 ),
+                transform: [{ scale: composerScale }],
               },
             ]}
           >
-            <View style={styles.composer}>
-              <Pressable style={styles.attachBtn} onPress={openAttachChooser}>
-                <Ionicons name="attach" size={24} color={palette.light} />
-              </Pressable>
-              <TextInput
-                placeholder="Type a message..."
-                placeholderTextColor={palette.slate}
-                value={message}
-                onChangeText={setMessage}
-                style={styles.input}
-                multiline
-                maxLength={500}
-              />
-              <Pressable
-                onPress={send}
-                style={({ pressed }) => [
-                  styles.sendBtn,
-                  pressed && styles.sendBtnPressed,
-                  (!message.trim() && attachments.length === 0) ||
-                  sendMutation.isPending
-                    ? styles.sendBtnDisabled
-                    : null,
-                ]}
-                disabled={
-                  (!message.trim() && attachments.length === 0) ||
-                  sendMutation.isPending
-                }
-              >
-                {sendMutation.isPending ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name="send" size={20} color="#fff" />
+            {/* Character Counter & Attachments Preview */}
+            {(attachments.length > 0 || message.length > 400) && (
+              <View style={styles.composerHeader}>
+                {attachments.length > 0 && (
+                  <View style={styles.attachmentsPreview}>
+                    {attachments.map((file, idx) => (
+                      <View
+                        style={styles.attachmentChip}
+                        key={`${file.uri}-${idx}`}
+                      >
+                        <Ionicons
+                          name="document-text-outline"
+                          size={14}
+                          color={palette.navy}
+                        />
+                        <Text style={styles.attachmentText} numberOfLines={1}>
+                          {file.name}
+                        </Text>
+                        <Pressable
+                          onPress={() =>
+                            setAttachments((prev) =>
+                              prev.filter((_, index) => index !== idx),
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.removeAttachment,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons name="close" size={12} color="#fff" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
                 )}
-              </Pressable>
-            </View>
-            {attachments.length > 0 && (
-              <View style={styles.attachmentsPreview}>
-                {attachments.map((file, idx) => (
-                  <View
-                    style={styles.attachmentChip}
-                    key={`${file.uri}-${idx}`}
-                  >
-                    <Ionicons
-                      name="document-text-outline"
-                      size={14}
-                      color={palette.navy}
-                    />
-                    <Text style={styles.attachmentText} numberOfLines={1}>
-                      {file.name}
-                    </Text>
-                    <Pressable
-                      onPress={() =>
-                        setAttachments((prev) =>
-                          prev.filter((_, index) => index !== idx)
-                        )
-                      }
-                      style={({ pressed }) => [
-                        styles.removeAttachment,
-                        pressed && { opacity: 0.7 },
+
+                {message.length > 400 && (
+                  <View style={styles.charCounter}>
+                    <Text
+                      style={[
+                        styles.charCountText,
+                        message.length > 480 && styles.charCountWarning,
                       ]}
                     >
-                      <Ionicons name="close" size={12} color="#fff" />
-                    </Pressable>
+                      {message.length}/500
+                    </Text>
                   </View>
-                ))}
+                )}
               </View>
             )}
-          </View>
+
+            {/* Input Row */}
+            <View style={styles.composer}>
+              <Animated.View
+                style={{
+                  transform: [{ rotate: rotateInterpolate }],
+                }}
+              >
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.attachBtn,
+                    pressed && styles.attachBtnPressed,
+                  ]}
+                  onPress={openAttachChooser}
+                >
+                  <Ionicons name="attach" size={24} color={palette.light} />
+                </Pressable>
+              </Animated.View>
+
+              <Animated.View
+                style={[
+                  styles.inputWrapper,
+                  {
+                    borderColor: borderColor,
+                  },
+                ]}
+              >
+                <TextInput
+                  placeholder="Type a message..."
+                  placeholderTextColor={palette.slate}
+                  value={message}
+                  onChangeText={setMessage}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
+                  style={styles.input}
+                  multiline
+                  maxLength={500}
+                />
+
+                {/* Typing indicator dot */}
+                {inputFocused && (
+                  <View style={styles.typingIndicator}>
+                    <View style={styles.typingDot} />
+                  </View>
+                )}
+              </Animated.View>
+
+              <Animated.View
+                style={{
+                  transform: [{ scale: sendButtonScale }],
+                }}
+              >
+                <Pressable
+                  onPress={send}
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    pressed && styles.sendBtnPressed,
+                    (!message.trim() && attachments.length === 0) ||
+                    sendMutation.isPending
+                      ? styles.sendBtnDisabled
+                      : null,
+                  ]}
+                  disabled={
+                    (!message.trim() && attachments.length === 0) ||
+                    sendMutation.isPending
+                  }
+                >
+                  {sendMutation.isPending ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Ionicons name="send" size={20} color="#fff" />
+                  )}
+                </Pressable>
+              </Animated.View>
+            </View>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -722,7 +873,10 @@ export default function ChatTab() {
                 ]}
                 onPress={() =>
                   !downloading &&
-                  downloadAttachment(viewerUri || undefined, viewerName || undefined)
+                  downloadAttachment(
+                    viewerUri || undefined,
+                    viewerName || undefined,
+                  )
                 }
                 disabled={downloading}
               >
@@ -796,15 +950,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     letterSpacing: -0.5,
   },
-  iconBtn: {
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: `${palette.gold}20`,
-  },
-  iconBtnPressed: {
-    backgroundColor: `${palette.gold}35`,
-    transform: [{ scale: 0.96 }],
-  },
   listHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -819,22 +964,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#e8edf5",
     letterSpacing: 0.4,
-  },
-  chatCount: {
-    backgroundColor: palette.gold,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    shadowColor: palette.gold,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  chatCountText: {
-    color: "#0A2436",
-    fontWeight: "800",
-    fontSize: 13,
   },
   chatList: {
     paddingVertical: 8,
@@ -984,32 +1113,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     letterSpacing: -0.2,
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#4CAF50",
-    shadowColor: "#4CAF50",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  chatHeaderStatus: {
-    color: "#ffffff70",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  moreBtn: {
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: "#ffffff10",
-  },
   messagesWrapper: {
     flex: 1,
   },
@@ -1121,60 +1224,99 @@ const styles = StyleSheet.create({
   },
   composerSection: {
     backgroundColor: "#0A2436",
+    borderTopWidth: 2,
+    borderTopColor: "#ffffff08",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  composerHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   composer: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 12,
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#ffffff10",
-    backgroundColor: "#0A2436",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 80,
   },
   attachBtn: {
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: `${palette.navy}dd`,
-    borderWidth: 1,
-    borderColor: `${palette.gold}40`,
-  },
-  input: {
-    flex: 1,
+    padding: 12,
+    borderRadius: 24,
+    backgroundColor: `${palette.accentBlue}`,
     borderWidth: 1.5,
-    borderColor: "#ffffff20",
-    borderRadius: 18,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    color: "#fff",
-    fontSize: 15,
-    maxHeight: 120,
+    borderColor: `${palette.gold}30`,
+    marginBottom: 4,
+    shadowColor: palette.gold,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  attachBtnPressed: {
+    backgroundColor: `${palette.accentBlue}dd`,
+    transform: [{ scale: 0.95 }],
+  },
+  inputWrapper: {
+    flex: 1,
+    borderWidth: 2,
+    borderRadius: 24,
     backgroundColor: "#0f2c45",
-    fontWeight: "500",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
+    elevation: 4,
+  },
+  input: {
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    color: "#fff",
+    fontSize: 15,
+    maxHeight: 120,
+    fontWeight: "500",
+    lineHeight: 22,
+  },
+  typingIndicator: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: palette.gold,
+    opacity: 0.6,
   },
   sendBtn: {
     backgroundColor: palette.gold,
     borderRadius: 28,
-    padding: 14,
+    padding: 16,
     width: 56,
     height: 56,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: palette.gold,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+    marginBottom: 4,
+    borderWidth: 2,
+    borderColor: "#ffffff20",
   },
   sendBtnPressed: {
     backgroundColor: "#D4B87D",
     transform: [{ scale: 0.94 }],
   },
   sendBtnDisabled: {
-    backgroundColor: "#ffffff20",
+    backgroundColor: "#ffffff15",
     opacity: 0.5,
     shadowOpacity: 0,
   },
@@ -1182,20 +1324,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: "#0A2436",
+    marginBottom: 8,
   },
   attachmentChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     backgroundColor: "#1a3a52",
-    borderRadius: 16,
+    borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: "#ffffff10",
+    borderColor: `${palette.gold}30`,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   attachmentText: {
     maxWidth: 160,
@@ -1210,6 +1355,42 @@ const styles = StyleSheet.create({
     backgroundColor: palette.gold,
     alignItems: "center",
     justifyContent: "center",
+  },
+  charCounter: {
+    alignItems: "flex-end",
+    paddingTop: 4,
+  },
+  charCountText: {
+    color: "#ffffff60",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  charCountWarning: {
+    color: palette.gold,
+    fontWeight: "800",
+  },
+  quickActions: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  quickActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff08",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: `${palette.gold}20`,
+  },
+  quickActionText: {
+    color: palette.gold,
+    fontSize: 13,
+    fontWeight: "700",
   },
   loadingContainer: {
     flex: 1,

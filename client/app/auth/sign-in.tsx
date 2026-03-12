@@ -15,6 +15,7 @@ import {
 import { ThemedText } from "@/components/themed-text";
 import { useLogin } from "@/hooks/use-auth";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useAuth } from "@/context/Authcontext";
 
 // Enable RTL layout
 I18nManager.allowRTL(false);
@@ -32,6 +33,7 @@ const palette = {
 export default function SignInScreen() {
   const colorScheme = useColorScheme();
   const { mutateAsync, isPending, error } = useLogin();
+  const { login: authLogin } = useAuth();
   const [fontsLoaded] = useFonts({
     NotoNaskhArabic: require("@/assets/fonts/NotoNaskhArabic-Regular.ttf"),
   });
@@ -76,6 +78,9 @@ export default function SignInScreen() {
       if (role && role !== "client") {
         setLocalError("يمكن لحسابات العملاء فقط تسجيل الدخول هنا.");
         return;
+      }
+      if (typeof token === "string") {
+        await authLogin(token);
       }
       router.replace("/(tabs)");
     } catch (err: any) {

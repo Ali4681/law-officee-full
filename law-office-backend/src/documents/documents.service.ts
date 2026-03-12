@@ -25,7 +25,12 @@ export class DocumentsService {
     userRole: string,
   ): Promise<DocumentModel> {
     await this.casesService.findOne(createDto.caseId, userId, userRole);
-    const doc = new this.docModel(createDto);
+    const doc = new this.docModel({
+      ...createDto,
+      extractedData: this.normalizeExtractedData(createDto.extractedData),
+      originalName: createDto.originalName || createDto.fileName,
+      fileName: createDto.fileName || createDto.originalName,
+    });
     return doc.save();
   }
 
@@ -80,8 +85,27 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException('Document not found');
     await this.casesService.findOne(doc.caseId.toString(), userId, userRole);
 
+    const normalizedUpdate: UpdateDocumentDto = {
+      ...updateDto,
+      ...(updateDto.extractedData !== undefined
+        ? { extractedData: this.normalizeExtractedData(updateDto.extractedData) }
+        : {}),
+      ...(updateDto.originalName
+        ? {
+            originalName: updateDto.originalName,
+            ...(updateDto.fileName ? {} : { fileName: updateDto.originalName }),
+          }
+        : {}),
+      ...(updateDto.fileName
+        ? {
+            fileName: updateDto.fileName,
+            ...(updateDto.originalName ? {} : { originalName: updateDto.fileName }),
+          }
+        : {}),
+    };
+
     const updated = await this.docModel
-      .findByIdAndUpdate(id, updateDto, { new: true })
+      .findByIdAndUpdate(id, normalizedUpdate, { new: true })
       .exec();
 
     if (!updated) {
@@ -104,6 +128,8 @@ export class DocumentsService {
       uploaderId: string;
       fileUrl: string;
       fileType: string;
+      fileName?: string;
+      originalName?: string;
       extractedData: any;
       documentType: 'court_decision' | 'contract';
     },
@@ -117,16 +143,25 @@ export class DocumentsService {
       uploaderId: data.uploaderId,
       fileUrl: data.fileUrl,
       fileType: data.fileType,
-      extractedData: data.extractedData,
+      fileName: data.fileName || data.originalName,
+      originalName: data.originalName || data.fileName,
+      extractedData: this.normalizeExtractedData(data.extractedData),
       documentType: data.documentType,
     });
     const savedDoc = await doc.save();
 
     return {
       document: savedDoc,
-      extractedData: data.extractedData,
+      extractedData: savedDoc.extractedData,
       documentType: data.documentType,
       message: 'Document saved with extracted data successfully',
     };
+  }
+
+  private normalizeExtractedData(value: any): Record<string, any> {
+    if (value === null || value === undefined) return {};
+    if (Array.isArray(value)) return { items: value };
+    if (typeof value === 'object') return value as Record<string, any>;
+    return { rawText: String(value) };
   }
 }

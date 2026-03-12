@@ -15,6 +15,12 @@ export class CreateDocumentDto {
   @IsString()
   fileType?: string;
   @IsOptional()
+  @IsString()
+  fileName?: string;
+  @IsOptional()
+  @IsString()
+  originalName?: string;
+  @IsOptional()
   extractedData?: Record<string, any>;
   @IsOptional()
   @IsString()

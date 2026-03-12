@@ -8,7 +8,7 @@ import {
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
-import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
@@ -19,26 +19,36 @@ import { ToastHost } from "@/components/ToastHost";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { showToast } from "@/utils/toast";
 
+// Conditionally import expo-notifications only if not in Expo Go
+let Notifications: any = null;
+if (Constants.appOwnership !== "expo") {
+  Notifications = require("expo-notifications");
+}
+
 export const unstable_settings = {
   anchor: "sign-in",
 };
 
 const queryClient = new QueryClient();
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 function NotificationListeners() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    if (!Notifications) return;
+
     if (!(Alert as any)._toastPatched) {
       const originalAlert = Alert.alert;
       (Alert as any)._toastPatched = true;
@@ -77,7 +87,7 @@ function NotificationListeners() {
     }
 
     const receivedSub = Notifications.addNotificationReceivedListener(
-      (notif) => {
+      (notif: any) => {
         const content = notif.request?.content || {};
         const title = content.title || "New notification";
         const body = content.body || title;
@@ -88,17 +98,17 @@ function NotificationListeners() {
           qc.invalidateQueries({ queryKey: ["cases"] });
           qc.invalidateQueries({ queryKey: ["cases", data.caseId] });
         }
-      }
+      },
     );
 
     const responseSub = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
+      (response: any) => {
         const data = (response.notification.request.content.data || {}) as any;
         if (data?.caseId) {
           qc.invalidateQueries({ queryKey: ["cases"] });
           qc.invalidateQueries({ queryKey: ["cases", data.caseId] });
         }
-      }
+      },
     );
 
     return () => {

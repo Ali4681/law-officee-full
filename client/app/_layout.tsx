@@ -4,13 +4,15 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
-import { I18nManager, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, I18nManager, StyleSheet, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AuthProvider, useAuth } from "../context/Authcontext";
 
 const palette = {
   navy: "#0A2436",
@@ -46,6 +48,42 @@ const CustomLightTheme = {
   },
 };
 
+function RootLayoutNav() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const inAuthGroup = segments[0] === "auth";
+
+    console.log("Navigation check:", {
+      isAuthenticated,
+      inAuthGroup,
+      segments,
+    });
+
+    if (!isAuthenticated && !inAuthGroup) {
+      console.log("🔒 Redirecting to sign-in");
+      router.replace("/auth/sign-in");
+    } else if (isAuthenticated && inAuthGroup) {
+      console.log("✅ Redirecting to tabs");
+      router.replace("/(tabs)");
+    }
+  }, [isAuthenticated, segments, isLoading]);
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={palette.gold} />
+      </View>
+    );
+  }
+
+  return <Slot />;
+}
+
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
 
@@ -58,38 +96,31 @@ export default function RootLayout() {
   });
 
   if (!fontsLoaded) {
-    return null; // Or a loading screen
+    return null;
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={CustomDarkTheme}>
-        <View style={[styles.container, { backgroundColor: palette.navy }]}>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "transparent" },
-              animation: "fade_from_bottom",
-              animationDuration: 250,
-            }}
-          >
-            <Stack.Screen
-              name="(tabs)"
-              options={{
-                animation: "fade",
-              }}
-            />
-          </Stack>
-
-          <StatusBar style="light" />
-        </View>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ThemeProvider value={CustomDarkTheme}>
+            <View style={[styles.container, { backgroundColor: palette.navy }]}>
+              <RootLayoutNav />
+              <StatusBar style="light" />
+            </View>
+          </ThemeProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

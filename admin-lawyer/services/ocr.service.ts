@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import { api } from "./api";
 
 export type OcrExtractOptions = {
@@ -30,10 +31,10 @@ export const OcrService = {
       ""
     )}/ocr/extract`;
 
-    const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    const result = await LegacyFileSystem.uploadAsync(uploadUrl, localUri, {
       fieldName: "file",
       httpMethod: "POST",
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      uploadType: LegacyFileSystem.FileSystemUploadType.MULTIPART,
       mimeType: fileType,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -64,10 +65,10 @@ export const OcrService = {
       ""
     )}/ocr/extract/async`;
 
-    const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    const result = await LegacyFileSystem.uploadAsync(uploadUrl, localUri, {
       fieldName: "file",
       httpMethod: "POST",
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      uploadType: LegacyFileSystem.FileSystemUploadType.MULTIPART,
       mimeType: fileType,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -104,7 +105,7 @@ async function ensureLocalFile(
 // ---------------------------------------------------
 // Helper: parse upload response or throw clean errors
 // ---------------------------------------------------
-function parseUploadResult(result: FileSystem.FileSystemUploadResult) {
+function parseUploadResult(result: LegacyFileSystem.FileSystemUploadResult) {
   if (result.status < 200 || result.status >= 300) {
     let message = result.body;
     try {
